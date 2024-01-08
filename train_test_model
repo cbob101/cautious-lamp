@@ -180,3 +180,157 @@ g = sns.FacetGrid(err_hist, col="Error", sharex=False, aspect=1.5)
 #g.fig.tight_layout()
 g.map(sns.histplot, 'amount')
 plt.savefig('error_histograms.png')
+
+
+train_preds = pd.DataFrame(train_preds).rename(columns={0:'predTTE', 1:'predxBall', 2:'predyBall'})
+x_train_reset = x_train.reset_index()
+x_train_w_preds = pd.concat([train_preds,x_train_reset], axis=1)
+x_train_w_preds.set_index('index', inplace=True)
+
+test_preds = pd.DataFrame(test_preds).rename(columns={0:'predTTE', 1:'predxBall', 2:'predyBall'})
+x_test_reset = x_test.reset_index()
+x_test_w_preds = pd.concat([test_preds,x_test_reset], axis=1)
+x_test_w_preds.set_index('index', inplace=True)
+
+eval_preds = pd.DataFrame(eval_preds).rename(columns={0:'predTTE', 1:'predxBall', 2:'predyBall'})
+eval_reset = eval_inputs.reset_index()
+eval_inputs_w_preds = pd.concat([eval_preds,eval_reset], axis=1)
+eval_inputs_w_preds.set_index('index', inplace=True)
+
+def calc_outcome(xcoord, ycoord):
+    if (ycoord < 0) | (ycoord > 53.33):
+        return 'out_of_bounds'
+    elif (xcoord < 0):
+        return 'touchdown'
+    else:
+        return 'tackle'
+
+train_outcome = pd.concat([x_train_w_preds[['predxBall', 'predyBall', 'predTTE']],y_train], axis=1)
+train_outcome['pred_outcome'] = train_outcome.apply(lambda row: calc_outcome(row['predxBall'], row['predyBall']), axis=1)
+train_outcome = train_outcome[(train_outcome['end_fumble'] == False)]
+#print(train_outcome)
+
+test_outcome = pd.concat([x_test_w_preds[['predxBall', 'predyBall', 'predTTE']],y_test], axis=1)
+test_outcome['pred_outcome'] = test_outcome.apply(lambda row: calc_outcome(row['predxBall'], row['predyBall']), axis=1)
+test_outcome = test_outcome[(test_outcome['end_fumble'] == False)]
+
+eval_outcome = pd.concat([eval_inputs_w_preds[['predxBall', 'predyBall', 'predTTE']],eval_outputs], axis=1)
+eval_outcome['pred_outcome'] = eval_outcome.apply(lambda row: calc_outcome(row['predxBall'], row['predyBall']), axis=1)
+eval_outcome = eval_outcome[(eval_outcome['end_fumble'] == False)]
+
+def outcome_col(oob, tackle, td):
+    if oob ==True:
+        return 'out_of_bounds'
+    elif tackle==True:
+        return 'tackle'
+    elif td==True:
+        return 'touchdown'
+
+eval_outcome['actual_outcome'] = eval_outcome.apply(lambda row: outcome_col(row['end_out_of_bounds'], row['end_tackle'], row['end_touchdown']), axis=1)
+
+from sklearn.metrics import confusion_matrix
+
+cm = confusion_matrix(y_true=eval_outcome['actual_outcome'],y_pred=eval_outcome['pred_outcome'], normalize='pred')
+cm = np.round(cm*100, 2)
+sns.heatmap(cm, 
+            annot=True,
+            fmt='g', 
+            xticklabels=['Out of Bounds','Tackle', 'Touchdown'],
+            yticklabels=['Out of Bounds','Tackle', 'Touchdown'])
+plt.ylabel('Actual',fontsize=13)
+plt.xlabel('Prediction',fontsize=13)
+plt.title('Confusion Matrix',fontsize=17)
+plt.text(1.25, -.50, 'Note: Normalized by predicted outcome and formatted as a percent', ha='center', va='center', fontsize=10, color='gray')
+
+plt.show()
+plt.savefig('class_confusion.png')
+
+
+reeval = pd.concat([eval_ids, eval_outcome[['predxBall', 'predyBall', 'predTTE', 'pred_outcome']]], axis=1)
+back_to_track = reeval[['gameId', 'playId', 'frameId', 'predxBall', 'predyBall']]
+back_to_track = back_to_track.rename(columns={'predxBall': 'x', 'predyBall': 'y'})
+pd.set_option('mode.chained_assignment', None)
+back_to_track['side'] = 'prediction'
+pd.set_option('mode.chained_assignment', 'warn')
+back_to_track = pd.merge(back_to_track, BConTrack1[['flipFlag', 'gameId', 'playId', 'frameId']].drop_duplicates(), how='inner', on=['gameId', 'playId', 'frameId'])
+back_to_track = pd.concat([back_to_track, BConTrack1])
+
+back_to_track.loc[:, 'x'] = back_to_track['x'] + 10
+back_to_track['x'] = back_to_track['x'].where(back_to_track['flipFlag']==False,other=120 - back_to_track['x'])
+back_to_track['y'] = back_to_track['y'].where(back_to_track['flipFlag']==False,other=53.33 - back_to_track['y'])
+back_to_track['o'] = back_to_track['o'].where(back_to_track['flipFlag']==False,other=(180 + back_to_track['o']) % 360)
+back_to_track['dir'] = back_to_track['dir'].where(back_to_track['flipFlag']==False,other=(180 + back_to_track['dir']) % 360)
+
+
+from matplotlib.animation import FuncAnimation
+
+
+scatter_data = back_to_track[(back_to_track['gameId'] == 2022102700) & 
+                             (back_to_track['playId'] == 68)]
+
+max_frame = scatter_data[(scatter_data['event'].notna()) &
+                           (scatter_data['event'] != 0)]
+#max_frame = scatter_data[(scatter_data['side'] == 'prediction')]
+max_frame = max_frame['frameId'].max()
+
+scatter_data = scatter_data[scatter_data['frameId'] <= max_frame]
+
+color_dict = {'prediction': 'blue', 'offense': 'orange', 'defense': 'black', 'football' : 'brown'}
+
+# Set up the plot
+fig, ax = plt.subplots()
+
+image_path = '/kaggle/input/field-img/Grass-football-field-clipart.png'
+img = plt.imread(image_path)
+image_extent = [0, 120, 0, 53.33]
+ax.imshow(img, extent=image_extent, aspect='auto', zorder=-1)
+plt.xlim(20, 70)
+plt.ylim(0, 53.33)
+plt.axis('scaled')
+ax.set_xticks([])
+ax.set_yticks([])
+ax.set_xticklabels([])
+ax.set_yticklabels([])
+sns.scatterplot(x='x', y='y', data=scatter_data[scatter_data['frameId'] == 6], ax=ax, hue='side', palette=color_dict)
+plt.legend(bbox_to_anchor=(1.05, 0), loc='lower left')
+plt.text(45, -2.5, 'Note: Shown at half speed', ha='center', va='center', fontsize=10, color='gray')
+
+def animate(frame):
+    ax.clear()
+    ax.imshow(img, extent=image_extent, aspect='auto', zorder=-1)
+    plt.axis('scaled')
+    plt.xlim(20, 70)
+    plt.ylim(0, 53.33)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_xticklabels([])
+    ax.set_yticklabels([])
+    frame_data = scatter_data[scatter_data['frameId'] == frame]
+    sns.scatterplot(x='x', y='y', data=frame_data, ax=ax, hue='side', palette=color_dict)
+    plt.legend(bbox_to_anchor=(1.05, 0), loc='lower left')
+    plt.text(45, -2.5, 'Note: Shown at half speed', ha='center', va='center', fontsize=10, color='gray')
+    plt.text(45, -2.5, 'Note: Shown at half speed', ha='center', va='center', fontsize=10, color='gray')
+
+
+frame_range = range(6, int(scatter_data['frameId'].max()))
+# Create the animation and assign it to a variable
+anim = FuncAnimation(fig, animate, frames=frame_range, interval=200)
+video_path = 'animation.gif'
+anim.save(video_path, writer='ffmpeg')
+
+import shutil
+import os
+
+# Input and output paths
+input_folder = '/kaggle/input/football-play/'
+output_folder = '/kaggle/working/'
+
+# Specify the name of your GIF file
+gif_filename = 'football_play.gif'
+
+# Full paths to the input and output GIF files
+input_gif_path = os.path.join(input_folder, gif_filename)
+output_gif_path = os.path.join(output_folder, gif_filename)
+
+# Copy the GIF file to the working directory
+shutil.copy(input_gif_path, output_gif_path)
