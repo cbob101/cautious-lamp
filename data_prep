@@ -1,0 +1,224 @@
+'''
+Author: Cameron Fowler
+Title: Tackle classification model for caught passes
+
+'''
+
+#NOTE: This cell should be split into multiple cells in order to make it easier to follow.
+
+import numpy as np # linear algebra
+import pandas as pd # data processing, CSV file I/O (e.g. pd.read_csv)
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense
+import matplotlib.pyplot as plt
+from matplotlib import animation
+import seaborn as sns
+import matplotlib
+from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import OneHotEncoder
+from tensorflow import keras
+layers = keras.layers
+
+
+#Data Prep/Cleaning
+games = pd.read_csv('/kaggle/input/nfl-big-data-bowl-2024/games.csv')
+players = pd.read_csv('/kaggle/input/nfl-big-data-bowl-2024/players.csv')
+plays = pd.read_csv('/kaggle/input/nfl-big-data-bowl-2024/plays.csv')
+tackles = pd.read_csv('/kaggle/input/nfl-big-data-bowl-2024/tackles.csv')
+
+#tracking data
+track1 = pd.read_csv('/kaggle/input/nfl-big-data-bowl-2024/tracking_week_1.csv')
+track2 = pd.read_csv('/kaggle/input/nfl-big-data-bowl-2024/tracking_week_2.csv')
+track3 = pd.read_csv('/kaggle/input/nfl-big-data-bowl-2024/tracking_week_3.csv')
+track4 = pd.read_csv('/kaggle/input/nfl-big-data-bowl-2024/tracking_week_4.csv')
+track5 = pd.read_csv('/kaggle/input/nfl-big-data-bowl-2024/tracking_week_5.csv')
+track6 = pd.read_csv('/kaggle/input/nfl-big-data-bowl-2024/tracking_week_6.csv')
+track7 = pd.read_csv('/kaggle/input/nfl-big-data-bowl-2024/tracking_week_7.csv')
+track8 = pd.read_csv('/kaggle/input/nfl-big-data-bowl-2024/tracking_week_8.csv')
+track9 = pd.read_csv('/kaggle/input/nfl-big-data-bowl-2024/tracking_week_9.csv')
+
+track1 = pd.concat([track1, track2, track3, track4, track5, track6, track7, track8, track9])
+print('data concatenated')
+
+
+replacement_dict = {'left': 0, 'right': 1}
+track1['playDirection'] = track1['playDirection'].replace(replacement_dict)
+
+
+# Preparing tackling data for later use
+tackles = tackles.rename(columns={'pff_missedTackle': 'missedTackle'})
+
+
+# Filtering out plays that start at the 50 yardline because I can't figure out how to know whether to flip the data or not
+plays =  plays[plays['absoluteYardlineNumber'] != 60]
+
+def time_to_seconds(time_str):
+    minutes, seconds = map(int, time_str.split(':'))
+    total_seconds = minutes * 60 + seconds
+    return total_seconds
+plays['gameClock'] = plays['gameClock'].apply(time_to_seconds)
+
+
+players = players.drop(columns=['birthDate', 'collegeName'])
+
+def heightToIn(height):
+    parts = height.split('-')
+    heightFt = int(parts[0])
+    heightIn = int(parts[1])
+    height = (heightFt * 12) + heightIn
+    return height
+
+players['height'] = players['height'].apply(heightToIn)
+
+# Only looking at plays where the pass arrives
+filterPassArrives = track1[track1['event'] == 'pass_outcome_caught']
+filterPassArrives = filterPassArrives[['gameId', 'playId']]
+filterPassArrives = filterPassArrives.drop_duplicates()
+plays = pd.merge(plays, filterPassArrives, on=['gameId', 'playId'])
+
+# Determines whether the x and y of the tracking data needs to be flipped
+def flipFlag(possessionTeam, yardlineSide, absoluteYardlineNumber):
+    return ((absoluteYardlineNumber > 60) & (possessionTeam != yardlineSide)) | ((absoluteYardlineNumber < 60) & (possessionTeam == yardlineSide))
+
+plays['flipFlag'] = plays.apply(lambda row: flipFlag(row['possessionTeam'], row['yardlineSide'], row['absoluteYardlineNumber']), axis=1)
+playsJoinTrack1 = plays[['gameId', 'playId', 'ballCarrierId', 'flipFlag', 'possessionTeam', 'quarter', 'down', 'yardsToGo', 'gameClock']]
+
+BConTrack1 = pd.merge(playsJoinTrack1, track1, on=['gameId', 'playId'])
+
+BConTrack1['x'] = BConTrack1['x'].where(BConTrack1['flipFlag']==False,other=120 - BConTrack1['x'])
+BConTrack1['y'] = BConTrack1['y'].where(BConTrack1['flipFlag']==False,other=53.33 - BConTrack1['y'])
+BConTrack1['o'] = BConTrack1['o'].where(BConTrack1['flipFlag']==False,other=(180 + BConTrack1['o']) % 360)
+BConTrack1['dir'] = BConTrack1['dir'].where(BConTrack1['flipFlag']==False,other=(180 + BConTrack1['dir']) % 360)
+BConTrack1.loc[:, 'x'] = BConTrack1['x'] - 10
+
+ballCarrierLoc = BConTrack1[BConTrack1['ballCarrierId'] == BConTrack1['nflId']]
+ballCarrierLoc = ballCarrierLoc[['gameId', 'playId', 'frameId', 'x', 'y']]
+
+ballCarrierLoc = ballCarrierLoc.copy()
+ballCarrierLoc['yBC'] = ballCarrierLoc['y']
+ballCarrierLoc['xBC'] = ballCarrierLoc['x']
+
+ballCarrierLoc = ballCarrierLoc.drop(columns=['x', 'y'])
+
+BConTrack1 = pd.merge(BConTrack1, ballCarrierLoc, on=['gameId', 'playId', 'frameId'])
+
+
+def distance(x1,x2,y1,y2):
+    distance = np.sqrt((x1-x2)**2 + (y1-y2)**2).astype(float)
+    return distance
+
+BConTrack1['distanceToBC'] = distance(BConTrack1['x'], BConTrack1['xBC'], BConTrack1['y'], BConTrack1['yBC'])
+
+def offenseOrDefense(club, possessionTeam):
+    if club == possessionTeam:
+        return 'offense'
+    elif club == 'football':
+        return 'football'
+    else:
+        return 'defense'
+
+BConTrack1['side'] = BConTrack1.apply(lambda row: offenseOrDefense(row['club'], row['possessionTeam']), axis=1)
+
+BConTrack1['angleFromBC'] = np.where(BConTrack1['distanceToBC'] != 0,
+                                     np.absolute(np.arccos((BConTrack1['yBC'] - BConTrack1['y']) / BConTrack1['distanceToBC'])),
+                                     np.nan)
+
+BConTrack1['angleFromBC'] = BConTrack1['angleFromBC'].where(BConTrack1['y'] < BConTrack1['yBC'],other= -BConTrack1['angleFromBC'])
+
+BConTrack1 = BConTrack1.drop(columns=['displayName', 'time', 'jerseyNumber', 'club', 'possessionTeam', 'dis'])
+
+# Add in player height, weight, and any events that happened in a play
+BConTrack1 = pd.merge(BConTrack1, players.drop(columns=['displayName']), how='left', on=['nflId'])
+BConTrack1 = pd.merge(BConTrack1, tackles, how='left', on=['gameId', 'playId', 'nflId'])
+BConTrack1.fillna(0, inplace=True)
+
+
+frameInfo = BConTrack1[['gameId', 'playId', 'frameId', 'quarter', 'down', 'yardsToGo', 'gameClock', 'playDirection', 'event', 'x', 'y', 's', 'a', 'distanceToBC', 'angleFromBC', 'side']]
+frameInfo = frameInfo[frameInfo['side'] == 'football']
+frameInfo = frameInfo.rename(columns={'x': 'xBall', 'y': 'yBall', 's': 'sBall', 'a': 'aBall', 'distanceToBC': 'distanceToBCBall', 'angleFromBC': 'angleFromBCBall'})
+frameInfo = frameInfo.drop(columns=['side'])
+
+
+bcInfo = BConTrack1[['gameId', 'playId', 'frameId', 'ballCarrierId','nflId', 'xBC', 'yBC', 's', 'a', 'dir', 'o', 'height', 'weight', 'position']]
+bcInfo = bcInfo[bcInfo['ballCarrierId'] == bcInfo['nflId']]
+bcInfo = bcInfo.rename(columns={'s': 'sBC', 'a': 'aBC', 'dir': 'dirBC', 'o': 'oBC', 'height': 'heightBC', 'weight': 'weightBC', 'position': 'positionBC'})
+bcInfo = bcInfo.drop(columns=['nflId', 'positionBC'])
+
+
+offenseInfo = BConTrack1[['gameId', 'playId', 'frameId', 'ballCarrierId','nflId', 'distanceToBC', 'angleFromBC', 's', 'a', 'dir', 'o', 'height', 'weight', 'position', 'side']]
+offenseInfo = offenseInfo[(offenseInfo['ballCarrierId'] != offenseInfo['nflId']) & (offenseInfo['side'] == 'offense')]
+offenseInfo = offenseInfo.sort_values(by=['gameId', 'playId', 'frameId', 'distanceToBC'])
+offenseInfo['offenseNum'] = offenseInfo.groupby(['gameId', 'playId', 'frameId']).cumcount() + 1
+
+#drop ids and positions
+offenseInfo = offenseInfo.drop(columns=['ballCarrierId', 'side', 'position'])
+offenseInfo = offenseInfo.melt(id_vars=['gameId', 'playId', 'frameId', 'offenseNum'])
+
+def lessThan10(number):
+    if number < 10:
+        return '0'
+    else:
+        return ''
+
+offenseInfo['offenseNum'] = 'Off' + offenseInfo['offenseNum'].apply(lessThan10).astype(str) + offenseInfo['offenseNum'].astype(str)
+offenseInfo['columnHead'] = offenseInfo['variable'] + offenseInfo['offenseNum']
+offenseInfo = offenseInfo.drop(columns=['variable', 'offenseNum'])
+offenseInfo['value'] = offenseInfo['value'].astype(str)
+offenseInfo = offenseInfo.pivot_table(index=['gameId', 'playId', 'frameId'], columns=['columnHead'], values='value', dropna=True, aggfunc=np.sum)
+offenseInfo = offenseInfo.reset_index()
+print('offense fomulated')
+
+
+defenseInfo = BConTrack1[['gameId', 'playId', 'frameId', 'ballCarrierId','nflId', 'distanceToBC', 'angleFromBC', 's', 'a', 'dir', 'o', 'height', 'weight', 'position', 'side', 'tackle', 'assist', 'forcedFumble', 'missedTackle']]
+defenseInfo = defenseInfo[defenseInfo['side'] == 'defense']
+defenseInfo = defenseInfo.sort_values(by=['gameId', 'playId', 'frameId', 'distanceToBC'])
+defenseInfo['defenseNum'] = defenseInfo.groupby(['gameId', 'playId', 'frameId']).cumcount() + 1
+
+#drop ids and positions
+defenseInfo = defenseInfo.drop(columns=['ballCarrierId', 'side', 'position'])
+defenseInfo = defenseInfo.melt(id_vars=['gameId', 'playId', 'frameId', 'defenseNum'])
+defenseInfo['defenseNum'] = 'Def' + defenseInfo['defenseNum'].apply(lessThan10).astype(str) + defenseInfo['defenseNum'].astype(str)
+defenseInfo['columnHead'] = defenseInfo['variable'] + defenseInfo['defenseNum']
+defenseInfo = defenseInfo.drop(columns=['variable', 'defenseNum'])
+defenseInfo['value'] = defenseInfo['value'].astype(str)
+defenseInfo = defenseInfo.pivot_table(index=['gameId', 'playId', 'frameId'], columns=['columnHead'], values='value', dropna=True, aggfunc=np.sum)
+defenseInfo = defenseInfo.reset_index()
+print('defense fomulated')
+
+
+filterMaxFrame = BConTrack1[(BConTrack1['event'].notna()) &
+                           (BConTrack1['event'] != 0)]
+filterMaxFrame = filterMaxFrame.groupby(['gameId', 'playId'])['frameId'].max()
+filterMaxFrame = filterMaxFrame.reset_index()
+
+
+filterMinFrame = BConTrack1[(BConTrack1['event'] == 'pass_outcome_caught')]
+filterMinFrame = filterMinFrame.groupby(['gameId', 'playId'])['frameId'].min()
+filterMinFrame = pd.DataFrame(filterMinFrame).rename(columns={'frameId':'minFrame'})
+filterMinFrame = filterMinFrame.reset_index()
+
+
+
+endEvent = pd.merge(filterMaxFrame, frameInfo[['gameId', 'playId', 'frameId', 'xBall', 'yBall', 'event']], how='inner', on=['gameId', 'playId', 'frameId'])
+endEvent = endEvent[(endEvent['event'] == 'fumble') | (endEvent['event'] == 'out_of_bounds') | (endEvent['event'] == 'tackle') | (endEvent['event'] == 'touchdown')]
+one_hot_encoded = pd.get_dummies(endEvent['event'], prefix='end')
+endEvent = pd.concat([endEvent, one_hot_encoded], axis=1)
+endEvent = endEvent.drop(columns=['event'])
+endEvent = endEvent.rename(columns={'frameId': 'endFrame', 'xBall': 'endxBall', 'yBall': 'endyBall'})
+
+
+totalRecall = pd.merge(frameInfo, bcInfo, how='inner', on=['gameId', 'playId', 'frameId'])
+totalRecall = pd.merge(offenseInfo, totalRecall, how='inner', on=['gameId', 'playId', 'frameId'])
+totalRecall = pd.merge(defenseInfo, totalRecall, how='inner', on=['gameId', 'playId', 'frameId'])
+totalRecall = pd.merge(totalRecall, endEvent, how='inner', on=['gameId', 'playId'])
+totalRecall = pd.merge(totalRecall, filterMinFrame, how='inner', on=['gameId', 'playId'])
+totalRecall = totalRecall[(totalRecall['frameId'] >= totalRecall['minFrame'])]
+totalRecall['timeToEnd'] = totalRecall['endFrame'] - totalRecall['frameId']
+totalRecall = totalRecall.drop(columns=['event', 'endFrame', 'minFrame'])
+totalRecall = totalRecall[(totalRecall['timeToEnd'] >= 0)]
+
+eval_data = totalRecall[(totalRecall['gameId'] >= 2022102700)]
+totalRecall = totalRecall[(totalRecall['gameId'] < 2022102700)]
+
+print('Done!')
