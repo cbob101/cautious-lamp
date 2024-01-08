@@ -1,0 +1,182 @@
+output_columns_list = ['timeToEnd', 'endxBall', 'endyBall', 'end_fumble', 'end_out_of_bounds', 'end_tackle', 'end_touchdown', 'tackleDef01', 'tackleDef02', 'tackleDef03', 'tackleDef04', 'tackleDef05', 'tackleDef06', 'tackleDef07', 'tackleDef08', 'tackleDef09', 'tackleDef10', 'tackleDef11', 'missedTackleDef01', 'missedTackleDef02', 'missedTackleDef03', 'missedTackleDef04', 'missedTackleDef05', 'missedTackleDef06', 'missedTackleDef07', 'missedTackleDef08', 'missedTackleDef09', 'missedTackleDef10', 'missedTackleDef11', 'forcedFumbleDef01', 'forcedFumbleDef02', 'forcedFumbleDef03', 'forcedFumbleDef04', 'forcedFumbleDef05', 'forcedFumbleDef06', 'forcedFumbleDef07', 'forcedFumbleDef08', 'forcedFumbleDef09', 'forcedFumbleDef10', 'forcedFumbleDef11', 'assistDef01', 'assistDef02', 'assistDef03', 'assistDef04', 'assistDef05', 'assistDef06', 'assistDef07', 'assistDef08', 'assistDef09', 'assistDef10', 'assistDef11']
+ids_list = ['gameId', 'playId', 'frameId', 'nflIdDef01', 'nflIdDef02', 'nflIdDef03', 'nflIdDef04', 'nflIdDef05', 'nflIdDef06', 'nflIdDef07', 'nflIdDef08', 'nflIdDef09', 'nflIdDef10', 'nflIdDef11', 'nflIdOff01', 'nflIdOff02', 'nflIdOff03', 'nflIdOff04', 'nflIdOff05', 'nflIdOff06', 'nflIdOff07', 'nflIdOff08', 'nflIdOff09', 'nflIdOff10', 'ballCarrierId']
+
+
+outputs = totalRecall[output_columns_list]
+ids = totalRecall[ids_list]
+input_columns_inverse_list = outputs.columns.tolist() + ids.columns.tolist()
+
+inputs = totalRecall.drop(columns=input_columns_inverse_list)
+
+eval_outputs = eval_data[output_columns_list]
+eval_ids = eval_data[ids_list]
+eval_inputs = eval_data.drop(columns=input_columns_inverse_list)
+print('Done')
+#YES
+
+from sklearn.model_selection import train_test_split
+
+x_train, x_test, y_train, y_test = train_test_split(inputs, outputs)
+'''
+x_train = x_train.reset_index()
+x_test = x_test.reset_index()
+y_train = y_train.reset_index()
+y_test = y_test.reset_index()
+'''
+
+y_train_def01_tackle = y_train[['tackleDef01']]
+y_test_def01_tackle = y_test[['tackleDef01']]
+
+y_train_timeToEnd = y_train['timeToEnd']
+y_test_timeToEnd =  y_test['timeToEnd']
+y_train_xball = y_train['endyBall']
+y_test_xball = y_test['endxBall']
+y_train_tog = y_train[['timeToEnd', 'endxBall', 'endyBall']]
+y_test_tog = y_test[['timeToEnd', 'endxBall', 'endyBall']]
+
+y_train_class = y_train[['end_fumble', 'end_out_of_bounds', 'end_tackle', 'end_touchdown']]
+y_test_class = y_test[['end_fumble', 'end_out_of_bounds', 'end_tackle', 'end_touchdown']]
+y_train_fumble = y_train[['end_fumble']]
+y_train_fumble_mod = y_train_fumble[y_train_fumble['end_fumble'] == True]
+y_train_fumble = y_train_fumble[y_train_fumble['end_fumble'] == False].sample(n=len(y_train_fumble_mod))
+y_train_fumble = pd.concat([y_train_fumble_mod, y_train_fumble]).sample(frac=1)
+#print(y_train_fumble)
+y_test_fumble = y_test[['end_fumble']]
+print('Done')
+#YES, can be cropped
+
+
+  #model for TTE, x, and y ending coords
+def get_model(n_inputs, n_outputs):
+    model = Sequential()
+    model.add(Dense(30, input_dim=n_inputs, kernel_initializer='he_uniform', activation='relu'))
+    model.add(Dense(n_outputs, kernel_initializer='he_uniform'))
+    model.compile(loss='mae', optimizer='adam')
+    return model
+
+n_inputs, n_outputs = x_train.shape[1], 3
+# get model
+model = get_model(n_inputs, n_outputs)
+
+tf_output_tensor = tf.convert_to_tensor(y_train_tog, dtype=tf.float32)
+tf_input_tensor = tf.convert_to_tensor(x_train, dtype=tf.float32)
+
+model.fit(tf_input_tensor, tf_output_tensor, epochs=20, batch_size=50)
+
+newX = tf.convert_to_tensor((x_test), dtype=tf.float32)
+test_preds = model.predict(newX)
+
+newX = tf.convert_to_tensor((x_train), dtype=tf.float32)
+train_preds = model.predict(newX)
+
+newX = tf.convert_to_tensor((eval_inputs), dtype=tf.float32)
+eval_preds = model.predict(newX)
+
+model.save('location_preds.keras')
+#print(yhat)
+
+#DEFINITE YES!!!
+
+
+#error calculation
+test_preds = pd.DataFrame(test_preds).rename(columns={0:'predTTE', 1:'predxBall', 2:'predyBall'})
+y_test_together = y_test_tog.reset_index()
+tog = pd.concat([test_preds, y_test_together], axis=1)
+
+tog['errTTE'] = (tog['predTTE'] - tog['timeToEnd'])/10
+tog['errxBall'] = tog['predxBall'] - tog['endxBall']
+tog['erryBall'] = tog['predyBall'] - tog['endyBall']
+
+mean_TTE = round(tog['errTTE'].median(),1)
+std_TTE = round(tog['errTTE'].std(),1)
+mean_xerr = round(tog['errxBall'].median(),2)
+std_xerr = round(tog['errxBall'].std(),2)
+mean_yerr = round(tog['erryBall'].median(),2)
+std_yerr = round(tog['erryBall'].std(),2)
+
+print('Mean Error (Time to end of play): ' + str(mean_TTE))
+print('St. Dev. of Error (Time to end of play): ' + str(std_TTE))
+print('Mean Error (End distance to endzone (yd)): ' + str(mean_xerr))
+print('St. Dev. of Error (End distance to endzone (yd)): ' + str(std_xerr))
+print('Mean Error (End distance from sideline (yd)): ' + str(mean_yerr))
+print('St. Dev. of  Error (End distance from sideline (yd)): ' + str(std_yerr))
+
+err_hist = tog.rename(columns={'errTTE': 'Time to end of play (sec)', 'errxBall': 'End distance to endzone (yd)', 'erryBall': 'End distance from sideline (yd)'})
+err_hist = pd.melt(err_hist, value_vars=['Time to end of play (sec)', 'End distance to endzone (yd)', 'End distance from sideline (yd)'], var_name='Error', value_name='amount')
+g = sns.FacetGrid(err_hist, col="Error", sharex=False, aspect=1.5)
+#g.fig.tight_layout()
+g.map(sns.histplot, 'amount')
+plt.savefig('error_histograms.png')
+
+err_hist_filter = tog[tog['predTTE'] <= 15]
+mean_TTE = round(err_hist_filter['errTTE'].median(),1)
+std_TTE = round(err_hist_filter['errTTE'].std(),1)
+mean_xerr = round(err_hist_filter['errxBall'].median(),2)
+std_xerr = round(err_hist_filter['errxBall'].std(),2)
+mean_yerr = round(err_hist_filter['erryBall'].median(),2)
+std_yerr = round(err_hist_filter['erryBall'].std(),2)
+
+print('Mean Error (Time to end of play): ' + str(mean_TTE))
+print('St. Dev. of Error (Time to end of play): ' + str(std_TTE))
+print('Mean Error (End distance to endzone (yd)): ' + str(mean_xerr))
+print('St. Dev. of Error (End distance to endzone (yd)): ' + str(std_xerr))
+print('Mean Error (End distance from sideline (yd)): ' + str(mean_yerr))
+print('St. Dev. of  Error (End distance from sideline (yd)): ' + str(std_yerr))
+err_hist = tog.rename(columns={'errTTE': 'Time to end of play (sec)', 'errxBall': 'End distance to endzone (yd)', 'erryBall': 'End distance from sideline (yd)'})
+err_hist = pd.melt(err_hist, value_vars=['Time to end of play (sec)', 'End distance to endzone (yd)', 'End distance from sideline (yd)'], var_name='Error', value_name='amount')
+g = sns.FacetGrid(err_hist, col="Error", sharex=False, aspect=1.5)
+#g.fig.tight_layout()
+g.map(sns.histplot, 'amount')
+plt.savefig('error_histograms.png')
+
+
+#error calculation
+test_preds = pd.DataFrame(test_preds).rename(columns={0:'predTTE', 1:'predxBall', 2:'predyBall'})
+y_test_together = y_test_tog.reset_index()
+tog = pd.concat([test_preds, y_test_together], axis=1)
+
+tog['errTTE'] = (tog['predTTE'] - tog['timeToEnd'])/10
+tog['errxBall'] = tog['predxBall'] - tog['endxBall']
+tog['erryBall'] = tog['predyBall'] - tog['endyBall']
+
+mean_TTE = round(tog['errTTE'].median(),1)
+std_TTE = round(tog['errTTE'].std(),1)
+mean_xerr = round(tog['errxBall'].median(),2)
+std_xerr = round(tog['errxBall'].std(),2)
+mean_yerr = round(tog['erryBall'].median(),2)
+std_yerr = round(tog['erryBall'].std(),2)
+
+print('Mean Error (Time to end of play): ' + str(mean_TTE))
+print('St. Dev. of Error (Time to end of play): ' + str(std_TTE))
+print('Mean Error (End distance to endzone (yd)): ' + str(mean_xerr))
+print('St. Dev. of Error (End distance to endzone (yd)): ' + str(std_xerr))
+print('Mean Error (End distance from sideline (yd)): ' + str(mean_yerr))
+print('St. Dev. of  Error (End distance from sideline (yd)): ' + str(std_yerr))
+
+err_hist = tog.rename(columns={'errTTE': 'Time to end of play (sec)', 'errxBall': 'End distance to endzone (yd)', 'erryBall': 'End distance from sideline (yd)'})
+err_hist = pd.melt(err_hist, value_vars=['Time to end of play (sec)', 'End distance to endzone (yd)', 'End distance from sideline (yd)'], var_name='Error', value_name='amount')
+g = sns.FacetGrid(err_hist, col="Error", sharex=False, aspect=1.5)
+#g.fig.tight_layout()
+g.map(sns.histplot, 'amount')
+plt.savefig('error_histograms.png')
+
+err_hist_filter = tog[tog['predTTE'] <= 15]
+mean_TTE = round(err_hist_filter['errTTE'].median(),1)
+std_TTE = round(err_hist_filter['errTTE'].std(),1)
+mean_xerr = round(err_hist_filter['errxBall'].median(),2)
+std_xerr = round(err_hist_filter['errxBall'].std(),2)
+mean_yerr = round(err_hist_filter['erryBall'].median(),2)
+std_yerr = round(err_hist_filter['erryBall'].std(),2)
+
+print('Mean Error (Time to end of play): ' + str(mean_TTE))
+print('St. Dev. of Error (Time to end of play): ' + str(std_TTE))
+print('Mean Error (End distance to endzone (yd)): ' + str(mean_xerr))
+print('St. Dev. of Error (End distance to endzone (yd)): ' + str(std_xerr))
+print('Mean Error (End distance from sideline (yd)): ' + str(mean_yerr))
+print('St. Dev. of  Error (End distance from sideline (yd)): ' + str(std_yerr))
+err_hist = tog.rename(columns={'errTTE': 'Time to end of play (sec)', 'errxBall': 'End distance to endzone (yd)', 'erryBall': 'End distance from sideline (yd)'})
+err_hist = pd.melt(err_hist, value_vars=['Time to end of play (sec)', 'End distance to endzone (yd)', 'End distance from sideline (yd)'], var_name='Error', value_name='amount')
+g = sns.FacetGrid(err_hist, col="Error", sharex=False, aspect=1.5)
+#g.fig.tight_layout()
+g.map(sns.histplot, 'amount')
+plt.savefig('error_histograms.png')
