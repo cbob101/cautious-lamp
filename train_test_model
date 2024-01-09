@@ -46,7 +46,7 @@ print('Done')
 #YES, can be cropped
 
 
-  #model for TTE, x, and y ending coords
+#model for TTE, x, and y ending coords
 def get_model(n_inputs, n_outputs):
     model = Sequential()
     model.add(Dense(30, input_dim=n_inputs, kernel_initializer='he_uniform', activation='relu'))
@@ -108,6 +108,7 @@ g = sns.FacetGrid(err_hist, col="Error", sharex=False, aspect=1.5)
 g.map(sns.histplot, 'amount')
 plt.savefig('error_histograms.png')
 
+'''
 err_hist_filter = tog[tog['predTTE'] <= 15]
 mean_TTE = round(err_hist_filter['errTTE'].median(),1)
 std_TTE = round(err_hist_filter['errTTE'].std(),1)
@@ -128,60 +129,10 @@ g = sns.FacetGrid(err_hist, col="Error", sharex=False, aspect=1.5)
 #g.fig.tight_layout()
 g.map(sns.histplot, 'amount')
 plt.savefig('error_histograms.png')
+'''
 
 
-#error calculation
-test_preds = pd.DataFrame(test_preds).rename(columns={0:'predTTE', 1:'predxBall', 2:'predyBall'})
-y_test_together = y_test_tog.reset_index()
-tog = pd.concat([test_preds, y_test_together], axis=1)
-
-tog['errTTE'] = (tog['predTTE'] - tog['timeToEnd'])/10
-tog['errxBall'] = tog['predxBall'] - tog['endxBall']
-tog['erryBall'] = tog['predyBall'] - tog['endyBall']
-
-mean_TTE = round(tog['errTTE'].median(),1)
-std_TTE = round(tog['errTTE'].std(),1)
-mean_xerr = round(tog['errxBall'].median(),2)
-std_xerr = round(tog['errxBall'].std(),2)
-mean_yerr = round(tog['erryBall'].median(),2)
-std_yerr = round(tog['erryBall'].std(),2)
-
-print('Mean Error (Time to end of play): ' + str(mean_TTE))
-print('St. Dev. of Error (Time to end of play): ' + str(std_TTE))
-print('Mean Error (End distance to endzone (yd)): ' + str(mean_xerr))
-print('St. Dev. of Error (End distance to endzone (yd)): ' + str(std_xerr))
-print('Mean Error (End distance from sideline (yd)): ' + str(mean_yerr))
-print('St. Dev. of  Error (End distance from sideline (yd)): ' + str(std_yerr))
-
-err_hist = tog.rename(columns={'errTTE': 'Time to end of play (sec)', 'errxBall': 'End distance to endzone (yd)', 'erryBall': 'End distance from sideline (yd)'})
-err_hist = pd.melt(err_hist, value_vars=['Time to end of play (sec)', 'End distance to endzone (yd)', 'End distance from sideline (yd)'], var_name='Error', value_name='amount')
-g = sns.FacetGrid(err_hist, col="Error", sharex=False, aspect=1.5)
-#g.fig.tight_layout()
-g.map(sns.histplot, 'amount')
-plt.savefig('error_histograms.png')
-
-err_hist_filter = tog[tog['predTTE'] <= 15]
-mean_TTE = round(err_hist_filter['errTTE'].median(),1)
-std_TTE = round(err_hist_filter['errTTE'].std(),1)
-mean_xerr = round(err_hist_filter['errxBall'].median(),2)
-std_xerr = round(err_hist_filter['errxBall'].std(),2)
-mean_yerr = round(err_hist_filter['erryBall'].median(),2)
-std_yerr = round(err_hist_filter['erryBall'].std(),2)
-
-print('Mean Error (Time to end of play): ' + str(mean_TTE))
-print('St. Dev. of Error (Time to end of play): ' + str(std_TTE))
-print('Mean Error (End distance to endzone (yd)): ' + str(mean_xerr))
-print('St. Dev. of Error (End distance to endzone (yd)): ' + str(std_xerr))
-print('Mean Error (End distance from sideline (yd)): ' + str(mean_yerr))
-print('St. Dev. of  Error (End distance from sideline (yd)): ' + str(std_yerr))
-err_hist = tog.rename(columns={'errTTE': 'Time to end of play (sec)', 'errxBall': 'End distance to endzone (yd)', 'erryBall': 'End distance from sideline (yd)'})
-err_hist = pd.melt(err_hist, value_vars=['Time to end of play (sec)', 'End distance to endzone (yd)', 'End distance from sideline (yd)'], var_name='Error', value_name='amount')
-g = sns.FacetGrid(err_hist, col="Error", sharex=False, aspect=1.5)
-#g.fig.tight_layout()
-g.map(sns.histplot, 'amount')
-plt.savefig('error_histograms.png')
-
-
+#classification model
 train_preds = pd.DataFrame(train_preds).rename(columns={0:'predTTE', 1:'predxBall', 2:'predyBall'})
 x_train_reset = x_train.reset_index()
 x_train_w_preds = pd.concat([train_preds,x_train_reset], axis=1)
@@ -243,17 +194,22 @@ plt.title('Confusion Matrix',fontsize=17)
 plt.text(1.25, -.50, 'Note: Normalized by predicted outcome and formatted as a percent', ha='center', va='center', fontsize=10, color='gray')
 
 plt.show()
-plt.savefig('class_confusion.png')
+plt.savefig('class_confusio.png')
 
+#print(cm)
+
+
+#YES
 
 reeval = pd.concat([eval_ids, eval_outcome[['predxBall', 'predyBall', 'predTTE', 'pred_outcome']]], axis=1)
-back_to_track = reeval[['gameId', 'playId', 'frameId', 'predxBall', 'predyBall']]
-back_to_track = back_to_track.rename(columns={'predxBall': 'x', 'predyBall': 'y'})
+back_to_track = reeval[['gameId', 'playId', 'frameId', 'predxBall', 'predyBall', 'predTTE', 'pred_outcome']]
+back_to_track = back_to_track.rename(columns={'predxBall': 'x', 'predyBall': 'y', 'predTTE':'Time to end'})
 pd.set_option('mode.chained_assignment', None)
 back_to_track['side'] = 'prediction'
 pd.set_option('mode.chained_assignment', 'warn')
 back_to_track = pd.merge(back_to_track, BConTrack1[['flipFlag', 'gameId', 'playId', 'frameId']].drop_duplicates(), how='inner', on=['gameId', 'playId', 'frameId'])
 back_to_track = pd.concat([back_to_track, BConTrack1])
+print(back_to_track)
 
 back_to_track.loc[:, 'x'] = back_to_track['x'] + 10
 back_to_track['x'] = back_to_track['x'].where(back_to_track['flipFlag']==False,other=120 - back_to_track['x'])
@@ -294,6 +250,8 @@ ax.set_yticklabels([])
 sns.scatterplot(x='x', y='y', data=scatter_data[scatter_data['frameId'] == 6], ax=ax, hue='side', palette=color_dict)
 plt.legend(bbox_to_anchor=(1.05, 0), loc='lower left')
 plt.text(45, -2.5, 'Note: Shown at half speed', ha='center', va='center', fontsize=10, color='gray')
+time_to_end = round(scatter_data['Time to end'].max()/10,1)
+plt.text(45, -4.5, time_to_end, ha='center', va='center', fontsize=10, color='gray')
 
 def animate(frame):
     ax.clear()
@@ -308,21 +266,24 @@ def animate(frame):
     frame_data = scatter_data[scatter_data['frameId'] == frame]
     sns.scatterplot(x='x', y='y', data=frame_data, ax=ax, hue='side', palette=color_dict)
     plt.legend(bbox_to_anchor=(1.05, 0), loc='lower left')
-    plt.text(45, -2.5, 'Note: Shown at half speed', ha='center', va='center', fontsize=10, color='gray')
-    plt.text(45, -2.5, 'Note: Shown at half speed', ha='center', va='center', fontsize=10, color='gray')
-
+    plt.text(45, -10.5, 'Note: Shown at half speed', ha='center', va='center', fontsize=10, color='gray')
+    time_to_end = round(frame_data['Time to end'].max()/10,1)
+    outcome = frame_data[frame_data['pred_outcome'].notna()]
+    outcome = frame_data['pred_outcome'].iloc[0]
+    plt.text(45, -2.5, 'Time to end of play: ' + str(time_to_end) + ' (sec)', ha='center', va='center', fontsize=14, color='black')
+    plt.text(45, -6.5, 'Most likely outcome: ' + str(outcome), ha='center', va='center', fontsize=14, color='black')
 
 frame_range = range(6, int(scatter_data['frameId'].max()))
 # Create the animation and assign it to a variable
 anim = FuncAnimation(fig, animate, frames=frame_range, interval=200)
-video_path = 'animation.gif'
+video_path = 'ani68.gif'
 anim.save(video_path, writer='ffmpeg')
 
 import shutil
 import os
 
 # Input and output paths
-input_folder = '/kaggle/input/football-play/'
+input_folder = '/kaggle/input/play-vids'
 output_folder = '/kaggle/working/'
 
 # Specify the name of your GIF file
@@ -334,3 +295,360 @@ output_gif_path = os.path.join(output_folder, gif_filename)
 
 # Copy the GIF file to the working directory
 shutil.copy(input_gif_path, output_gif_path)
+#/kaggle/input/d/cameronfowler/football-play/football_play.gif
+
+
+scatter_data = back_to_track[(back_to_track['gameId'] == 2022103010) & 
+                             (back_to_track['playId'] == 2955)]
+
+max_frame = scatter_data[(scatter_data['event'].notna()) &
+                           (scatter_data['event'] != 0)]
+#max_frame = scatter_data[(scatter_data['side'] == 'prediction')]
+max_frame = max_frame['frameId'].max()
+
+scatter_data = scatter_data[scatter_data['frameId'] <= max_frame]
+
+color_dict = {'prediction': 'blue', 'offense': 'orange', 'defense': 'black', 'football' : 'brown'}
+
+# Set up the plot
+fig, ax = plt.subplots()
+
+image_path = '/kaggle/input/field-img/Grass-football-field-clipart.png'
+img = plt.imread(image_path)
+image_extent = [0, 120, 0, 53.33]
+ax.imshow(img, extent=image_extent, aspect='auto', zorder=-1)
+plt.xlim(0, 120)
+plt.ylim(0, 53.33)
+plt.axis('scaled')
+ax.set_xticks([])
+ax.set_yticks([])
+ax.set_xticklabels([])
+ax.set_yticklabels([])
+sns.scatterplot(x='x', y='y', data=scatter_data[scatter_data['frameId'] == 6], ax=ax, hue='side', palette=color_dict)
+plt.legend(bbox_to_anchor=(0, 0), loc='lower center')
+plt.text(45, -2.5, 'Note: Shown at half speed', ha='center', va='center', fontsize=10, color='gray')
+time_to_end = round(scatter_data['Time to end'].max()/10,1)
+plt.text(45, -4.5, time_to_end, ha='center', va='center', fontsize=10, color='gray')
+
+def animate(frame):
+    ax.clear()
+    ax.imshow(img, extent=image_extent, aspect='auto', zorder=-1)
+    plt.axis('scaled')
+    plt.xlim(0, 120)
+    plt.ylim(0, 53.33)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_xticklabels([])
+    ax.set_yticklabels([])
+    frame_data = scatter_data[scatter_data['frameId'] == frame]
+    sns.scatterplot(x='x', y='y', data=frame_data, ax=ax, hue='side', palette=color_dict)
+    plt.legend(bbox_to_anchor=(0, 0), loc='lower center')
+    plt.text(60, -10.5, 'Note: Shown at half speed', ha='center', va='center', fontsize=10, color='gray')
+    time_to_end = round(frame_data['Time to end'].max()/10,1)
+    outcome = frame_data[frame_data['pred_outcome'].notna()]
+    outcome = frame_data['pred_outcome'].iloc[0]
+    plt.text(60, -2.5, 'Time to end of play: ' + str(time_to_end) + ' (sec)', ha='center', va='center', fontsize=14, color='black')
+    plt.text(60, -6.5, 'Most likely outcome: ' + str(outcome), ha='center', va='center', fontsize=14, color='black')
+
+frame_range = range(6, int(scatter_data['frameId'].max()))
+# Create the animation and assign it to a variable
+anim = FuncAnimation(fig, animate, frames=frame_range, interval=200)
+video_path = 'ani2955.gif'
+anim.save(video_path, writer='ffmpeg')
+
+import shutil
+import os
+
+# Input and output paths
+input_folder = '/kaggle/input/play-vids'
+output_folder = '/kaggle/working/'
+
+# Specify the name of your GIF file
+gif_filename = 'play2955.gif'
+
+# Full paths to the input and output GIF files
+input_gif_path = os.path.join(input_folder, gif_filename)
+output_gif_path = os.path.join(output_folder, gif_filename)
+
+# Copy the GIF file to the working directory
+shutil.copy(input_gif_path, output_gif_path)
+print(frame_range)
+
+
+scatter_data = back_to_track[(back_to_track['gameId'] == 2022110603) & 
+                             (back_to_track['playId'] == 796)]
+
+max_frame = scatter_data[(scatter_data['event'].notna()) &
+                           (scatter_data['event'] != 0)]
+#max_frame = scatter_data[(scatter_data['side'] == 'prediction')]
+max_frame = max_frame['frameId'].max()
+
+scatter_data = scatter_data[scatter_data['frameId'] <= max_frame]
+
+color_dict = {'prediction': 'blue', 'offense': 'orange', 'defense': 'black', 'football' : 'brown'}
+
+# Set up the plot
+fig, ax = plt.subplots()
+
+image_path = '/kaggle/input/field-img/Grass-football-field-clipart.png'
+img = plt.imread(image_path)
+image_extent = [0, 120, 0, 53.33]
+ax.imshow(img, extent=image_extent, aspect='auto', zorder=-1)
+plt.xlim(0, 120)
+plt.ylim(0, 53.33)
+plt.axis('scaled')
+ax.set_xticks([])
+ax.set_yticks([])
+ax.set_xticklabels([])
+ax.set_yticklabels([])
+sns.scatterplot(x='x', y='y', data=scatter_data[scatter_data['frameId'] == 6], ax=ax, hue='side', palette=color_dict)
+plt.legend(bbox_to_anchor=(0, 0), loc='lower center')
+plt.text(45, -2.5, 'Note: Shown at half speed', ha='center', va='center', fontsize=10, color='gray')
+time_to_end = round(scatter_data['Time to end'].max()/10,1)
+plt.text(45, -4.5, time_to_end, ha='center', va='center', fontsize=10, color='gray')
+
+def animate(frame):
+    ax.clear()
+    ax.imshow(img, extent=image_extent, aspect='auto', zorder=-1)
+    plt.axis('scaled')
+    plt.xlim(0, 120)
+    plt.ylim(0, 53.33)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_xticklabels([])
+    ax.set_yticklabels([])
+    frame_data = scatter_data[scatter_data['frameId'] == frame]
+    sns.scatterplot(x='x', y='y', data=frame_data, ax=ax, hue='side', palette=color_dict)
+    plt.legend(bbox_to_anchor=(0, 0), loc='lower center')
+    plt.text(60, -10.5, 'Note: Shown at half speed', ha='center', va='center', fontsize=10, color='gray')
+    time_to_end = round(frame_data['Time to end'].max()/10,1)
+    outcome = frame_data[frame_data['pred_outcome'].notna()]
+    outcome = frame_data['pred_outcome'].iloc[0]
+    plt.text(60, -2.5, 'Time to end of play: ' + str(time_to_end) + ' (sec)', ha='center', va='center', fontsize=14, color='black')
+    plt.text(60, -6.5, 'Most likely outcome: ' + str(outcome), ha='center', va='center', fontsize=14, color='black')
+
+frame_range = range(6, int(scatter_data['frameId'].max()))
+# Create the animation and assign it to a variable
+anim = FuncAnimation(fig, animate, frames=frame_range, interval=200)
+video_path = 'ani796.gif'
+anim.save(video_path, writer='ffmpeg')
+
+import shutil
+import os
+
+# Input and output paths
+input_folder = '/kaggle/input/play-vids'
+output_folder = '/kaggle/working/'
+
+# Specify the name of your GIF file
+gif_filename = 'play796.gif'
+
+# Full paths to the input and output GIF files
+input_gif_path = os.path.join(input_folder, gif_filename)
+output_gif_path = os.path.join(output_folder, gif_filename)
+
+# Copy the GIF file to the working directory
+shutil.copy(input_gif_path, output_gif_path)
+print(frame_range)
+
+
+scatter_data = back_to_track[(back_to_track['gameId'] == 2022103006) & 
+                             (back_to_track['playId'] == 2752)]
+
+max_frame = scatter_data[(scatter_data['event'].notna()) &
+                           (scatter_data['event'] != 0)]
+#max_frame = scatter_data[(scatter_data['side'] == 'prediction')]
+max_frame = max_frame['frameId'].max()
+
+scatter_data = scatter_data[scatter_data['frameId'] <= max_frame]
+
+color_dict = {'prediction': 'blue', 'offense': 'orange', 'defense': 'black', 'football' : 'brown'}
+
+# Set up the plot
+fig, ax = plt.subplots()
+
+image_path = '/kaggle/input/field-img/Grass-football-field-clipart.png'
+img = plt.imread(image_path)
+image_extent = [0, 120, 0, 53.33]
+ax.imshow(img, extent=image_extent, aspect='auto', zorder=-1)
+plt.xlim(0, 120)
+plt.ylim(0, 53.33)
+plt.axis('scaled')
+ax.set_xticks([])
+ax.set_yticks([])
+ax.set_xticklabels([])
+ax.set_yticklabels([])
+sns.scatterplot(x='x', y='y', data=scatter_data[scatter_data['frameId'] == 6], ax=ax, hue='side', palette=color_dict)
+plt.legend(bbox_to_anchor=(0, 0), loc='lower center')
+plt.text(45, -2.5, 'Note: Shown at half speed', ha='center', va='center', fontsize=10, color='gray')
+time_to_end = round(scatter_data['Time to end'].max()/10,1)
+plt.text(45, -4.5, time_to_end, ha='center', va='center', fontsize=10, color='gray')
+
+def animate(frame):
+    ax.clear()
+    ax.imshow(img, extent=image_extent, aspect='auto', zorder=-1)
+    plt.axis('scaled')
+    plt.xlim(0, 120)
+    plt.ylim(0, 53.33)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_xticklabels([])
+    ax.set_yticklabels([])
+    frame_data = scatter_data[scatter_data['frameId'] == frame]
+    sns.scatterplot(x='x', y='y', data=frame_data, ax=ax, hue='side', palette=color_dict)
+    plt.legend(bbox_to_anchor=(0, 0), loc='lower center')
+    plt.text(60, -10.5, 'Note: Shown at half speed', ha='center', va='center', fontsize=10, color='gray')
+    time_to_end = round(frame_data['Time to end'].max()/10,1)
+    outcome = frame_data[frame_data['pred_outcome'].notna()]
+    outcome = frame_data['pred_outcome'].iloc[0]
+    plt.text(60, -2.5, 'Time to end of play: ' + str(time_to_end) + ' (sec)', ha='center', va='center', fontsize=14, color='black')
+    plt.text(60, -6.5, 'Most likely outcome: ' + str(outcome), ha='center', va='center', fontsize=14, color='black')
+
+
+frame_range = range(6, int(scatter_data['frameId'].max()))
+# Create the animation and assign it to a variable
+anim = FuncAnimation(fig, animate, frames=frame_range, interval=200)
+video_path = 'sample_ani.gif'
+anim.save(video_path, writer='ffmpeg')
+
+
+
+#Player prediction model (will add if I have time)
+​
+#x_train_w_class_preds = pd.concat([x_train_w_preds, train_outcome['pred_outcome']], axis=1)
+class_one_hot_encoded = pd.get_dummies(train_outcome['pred_outcome'], prefix='classpred')
+#class_one_hot_encoded = class_one_hot_encoded.astype(int)
+x_train_w_class_preds = pd.concat([x_train_w_preds, class_one_hot_encoded], axis=1)
+#print(x_train_w_class_preds)
+class_one_hot_encoded = pd.get_dummies(test_outcome['pred_outcome'], prefix='pred')
+x_test_w_class_preds = pd.concat([x_test_w_preds, class_one_hot_encoded], axis=1)
+​
+def get_class_model(n_inputs, n_outputs):
+    model = Sequential()
+    model.add(Dense(20, input_dim=n_inputs, kernel_initializer='he_uniform', activation='relu'))
+    model.add(Dense(n_outputs, kernel_initializer='he_uniform', activation='sigmoid'))
+    model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
+    return model
+​
+n_inputs, n_outputs = x_train_w_preds.shape[1], 1
+# get model
+player_tackle_model = get_class_model(n_inputs, n_outputs)
+​
+tf_output_tensor = tf.convert_to_tensor(y_train_def01_tackle, dtype=tf.float32)
+tf_input_tensor = tf.convert_to_tensor(x_train_w_preds, dtype=tf.float32)
+​
+player_tackle_model.fit(tf_input_tensor, tf_output_tensor, epochs=10, batch_size=50)
+​
+tf_output_tensor_test = tf.convert_to_tensor(y_test_def01_tackle, dtype=tf.float32)
+tf_input_tensor_test = tf.convert_to_tensor(x_test_w_preds, dtype=tf.float32)
+​
+_, accuracy = player_tackle_model.evaluate(tf_input_tensor_test, tf_output_tensor_test)
+print('Accuracy: %.2f' % (accuracy*100))
+​
+yhat = player_tackle_model.predict(tf_input_tensor_test)
+pred_player_tackle = pd.DataFrame(yhat).rename(columns={0:'predTackle01'})
+print(pred_player_tackle)
+y_test_playertackle = y_test_player_tackle.reset_index()
+error_test = pd.concat([pred_player_tackle, y_test_playertackle], axis=1)
+#print(error_test)
+​
+def confusion_player_tackle(prediction, comparison):
+    if ((prediction > .5) & (comparison == '1.0')):
+        return 'true_pos'
+    if ((prediction > .5) & (comparison == '0.0')):
+        return 'false_pos'
+    if ((prediction <= .5) & (comparison == '1.0')):
+        return 'false_neg'
+    if ((prediction <= .5) & (comparison == '0.0')):
+        return 'true_neg'
+​
+error_test['error01'] = error_test.apply(lambda row: confusion_player_tackle(row['predTackle01'], row['tackleDef01']), axis=1)
+print(error_test['error01'])
+hist_plot = sns.histplot(error_test['error01'])
+plt.show()
+add Codeadd Markdown
+n_inputs, n_outputs = x_train_w_preds.shape[1], 1
+# get model
+player_tackle_model = get_class_model(n_inputs, n_outputs)
+​
+tf_output_tensor = tf.convert_to_tensor(y_train[['assistDef02']], dtype=tf.float32)
+tf_input_tensor = tf.convert_to_tensor(x_train_w_preds, dtype=tf.float32)
+​
+player_tackle_model.fit(tf_input_tensor, tf_output_tensor, epochs=10, batch_size=50)
+​
+tf_output_tensor_test = tf.convert_to_tensor(y_test[['assistDef02']], dtype=tf.float32)
+tf_input_tensor_test = tf.convert_to_tensor(x_test_w_preds, dtype=tf.float32)
+​
+_, accuracy = player_tackle_model.evaluate(tf_input_tensor_test, tf_output_tensor_test)
+print('Accuracy: %.2f' % (accuracy*100))
+​
+yhat = player_tackle_model.predict(tf_input_tensor_test)
+pred_player_tackle = pd.DataFrame(yhat).rename(columns={0:'predTackle02'})
+print(pred_player_tackle)
+y_test_playertackle = y_test_player_tackle.reset_index()
+error_test = pd.concat([pred_player_tackle, y_test_playertackle], axis=1)
+#print(error_test)
+​
+error_test['error02'] = error_test.apply(lambda row: confusion_player_tackle(row['predTackle02'], row['tackleDef02']), axis=1)
+print(error_test['error02'])
+hist_plot = sns.histplot(error_test['error02'])
+plt.show()
+''''''
+error_test['error03'] = error_test.apply(lambda row: confusion_player_tackle(row['predTackle03'], row['tackleDef03']), axis=1)
+print(error_test['error03'])
+hist_plot = sns.histplot(error_test['error03'])
+plt.show()
+add Codeadd Markdown
+#fumble attempt (has no predictive insight so getting commented out)
+'''
+x_train_w_preds_fumble = pd.merge(x_train_w_preds, y_train_fumble, left_index=True, right_index=True, how='inner')
+y_train_fumble = x_train_w_preds_fumble['end_fumble']
+x_train_w_preds_fumble = x_train_w_preds_fumble.drop(columns='end_fumble')
+​
+def get_class_model(n_inputs, n_outputs):
+ model = Sequential()
+ model.add(Dense(20, input_dim=n_inputs, kernel_initializer='he_uniform', activation='relu'))
+ model.add(Dense(n_outputs, kernel_initializer='he_uniform', activation='sigmoid'))
+ model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
+ return model
+​
+n_inputs, n_outputs = x_train_w_preds_fumble.shape[1], 1
+# get model
+model = get_class_model(n_inputs, n_outputs)
+​
+tf_output_tensor = tf.convert_to_tensor(y_train_fumble, dtype=tf.float32)
+tf_input_tensor = tf.convert_to_tensor(x_train_w_preds_fumble, dtype=tf.float32)
+​
+model.fit(tf_input_tensor, tf_output_tensor, epochs=10, batch_size=20)
+​
+tf_output_tensor_test = tf.convert_to_tensor(y_test_fumble, dtype=tf.float32)
+tf_input_tensor_test = tf.convert_to_tensor(x_test_w_preds, dtype=tf.float32)
+​
+_, accuracy = model.evaluate(tf_input_tensor_test, tf_output_tensor_test)
+print('Accuracy: %.2f' % (accuracy*100))
+​
+yhat = model.predict(tf_input_tensor_test)
+pred_fumble = pd.DataFrame(yhat).rename(columns={0:'predfumble'})
+print(yhat)
+'''
+add Codeadd Markdown
+#fumble error shows fumble analysis has no predictive insight
+'''
+y_test_fumble = y_test_fumble.reset_index()
+tog = pd.concat([pred_fumble, y_test_fumble], axis=1)
+print(tog)
+​
+tog['errTTE'] = tog['predTTE'] - tog['timeToEnd']
+tog['errxBall'] = tog['predxBall'] - tog['endxBall']
+tog['erryBall'] = tog['predyBall'] - tog['endyBall']
+​
+mean_TTE = tog['errTTE'].mean()
+std_TTE = tog['errTTE'].std()
+mean_xerr = tog['errxBall'].mean()
+std_xerr = tog['errxBall'].std()
+mean_yerr = tog['erryBall'].mean()
+std_yerr = tog['erryBall'].std()
+​
+print(mean_TTE)
+print(std_TTE)
+'''
